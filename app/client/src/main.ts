@@ -294,46 +294,82 @@ function createResultsTable(results: Record<string, any>[], columns: string[]): 
 }
 
 // Display tables
+// Handle data generation for a table
+async function handleGenerateData(tableName: string, button: HTMLButtonElement) {
+  // Disable button and show loading state
+  button.disabled = true;
+  button.innerHTML = '<span class="loading"></span>';
+  button.title = 'Generating data...';
+
+  try {
+    const response = await api.generateTableData(tableName);
+
+    if (response.error) {
+      displayError(`Failed to generate data: ${response.error}`);
+    } else {
+      displaySuccess(`Generated ${response.rows_added} rows for table '${response.table_name}'. New total: ${response.new_row_count} rows.`);
+      // Reload database schema to update table row counts
+      await loadDatabaseSchema();
+    }
+  } catch (error) {
+    displayError(`Failed to generate data: ${error}`);
+  } finally {
+    // Re-enable button and restore original state
+    button.disabled = false;
+    button.innerHTML = '⚡ Generate';
+    button.title = 'Generate synthetic data using AI';
+  }
+}
+
 function displayTables(tables: TableSchema[]) {
   const tablesList = document.getElementById('tables-list') as HTMLDivElement;
-  
+
   if (tables.length === 0) {
     tablesList.innerHTML = '<p class="no-tables">No tables loaded. Upload data or use sample data to get started.</p>';
     return;
   }
-  
+
   tablesList.innerHTML = '';
-  
+
   tables.forEach(table => {
     const tableItem = document.createElement('div');
     tableItem.className = 'table-item';
-    
+
     // Header section
     const tableHeader = document.createElement('div');
     tableHeader.className = 'table-header';
-    
+
     const tableLeft = document.createElement('div');
     tableLeft.style.display = 'flex';
     tableLeft.style.alignItems = 'center';
     tableLeft.style.gap = '1rem';
-    
+
     const tableName = document.createElement('div');
     tableName.className = 'table-name';
     tableName.textContent = table.name;
-    
+
     const tableInfo = document.createElement('div');
     tableInfo.className = 'table-info';
     tableInfo.textContent = `${table.row_count} rows, ${table.columns.length} columns`;
-    
+
     tableLeft.appendChild(tableName);
     tableLeft.appendChild(tableInfo);
-    
+
     // Create buttons container
     const buttonsContainer = document.createElement('div');
     buttonsContainer.style.display = 'flex';
     buttonsContainer.style.gap = '0.5rem';
     buttonsContainer.style.alignItems = 'center';
-    
+
+    // Create generate data button
+    const generateButton = document.createElement('button');
+    generateButton.className = 'generate-data-button';
+    generateButton.innerHTML = '⚡ Generate';
+    generateButton.title = 'Generate synthetic data using AI';
+    generateButton.onclick = async () => {
+      await handleGenerateData(table.name, generateButton);
+    };
+
     // Create export button
     const exportButton = document.createElement('button');
     exportButton.className = 'export-button table-export-button';
@@ -346,41 +382,42 @@ function displayTables(tables: TableSchema[]) {
         displayError('Failed to export table');
       }
     };
-    
+
     const removeButton = document.createElement('button');
     removeButton.className = 'remove-table-button';
     removeButton.innerHTML = '&times;';
     removeButton.title = 'Remove table';
     removeButton.onclick = () => removeTable(table.name);
-    
+
+    buttonsContainer.appendChild(generateButton);
     buttonsContainer.appendChild(exportButton);
     buttonsContainer.appendChild(removeButton);
-    
+
     tableHeader.appendChild(tableLeft);
     tableHeader.appendChild(buttonsContainer);
-    
+
     // Columns section
     const tableColumns = document.createElement('div');
     tableColumns.className = 'table-columns';
-    
+
     table.columns.forEach(column => {
       const columnTag = document.createElement('span');
       columnTag.className = 'column-tag';
-      
+
       const columnName = document.createElement('span');
       columnName.className = 'column-name';
       columnName.textContent = column.name;
-      
+
       const columnType = document.createElement('span');
       columnType.className = 'column-type';
       const typeEmoji = getTypeEmoji(column.type);
       columnType.textContent = `${typeEmoji} ${column.type}`;
-      
+
       columnTag.appendChild(columnName);
       columnTag.appendChild(columnType);
       tableColumns.appendChild(columnTag);
     });
-    
+
     tableItem.appendChild(tableHeader);
     tableItem.appendChild(tableColumns);
     tablesList.appendChild(tableItem);
@@ -420,13 +457,36 @@ function displayError(message: string) {
   const errorDiv = document.createElement('div');
   errorDiv.className = 'error-message';
   errorDiv.textContent = message;
-  
+
   const resultsContainer = document.getElementById('results-container') as HTMLDivElement;
   resultsContainer.innerHTML = '';
   resultsContainer.appendChild(errorDiv);
-  
+
   const resultsSection = document.getElementById('results-section') as HTMLElement;
   resultsSection.style.display = 'block';
+}
+
+// Display success message
+function displaySuccess(message: string) {
+  const successDiv = document.createElement('div');
+  successDiv.className = 'success-message';
+  successDiv.textContent = message;
+  successDiv.style.cssText = `
+    background: rgba(40, 167, 69, 0.1);
+    border: 1px solid var(--success-color);
+    color: var(--success-color);
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+  `;
+
+  const tablesSection = document.getElementById('tables-section') as HTMLElement;
+  tablesSection.insertBefore(successDiv, tablesSection.firstChild);
+
+  // Remove success message after 3 seconds
+  setTimeout(() => {
+    successDiv.remove();
+  }, 3000);
 }
 
 // Initialize modal
