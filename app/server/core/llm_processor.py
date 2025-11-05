@@ -47,7 +47,6 @@ SQL Query:"""
                 {"role": "system", "content": "You are a SQL expert. Convert natural language to SQL queries."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.1,
             max_completion_tokens=500
         )
         
@@ -187,7 +186,6 @@ Natural language query:"""
                 {"role": "system", "content": "You are a helpful assistant that generates interesting questions about data."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.8,
             max_completion_tokens=100
         )
         
@@ -350,7 +348,6 @@ Example output format:
                 {"role": "system", "content": "You are a data generation expert. Generate realistic synthetic data that matches patterns in sample data."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.8,
             max_completion_tokens=2000
         )
 
