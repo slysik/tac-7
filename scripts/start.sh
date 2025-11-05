@@ -3,6 +3,11 @@
 # Source port configuration if exists
 [ -f ".ports.env" ] && source .ports.env
 
+# Export environment variables for child processes
+export BACKEND_PORT
+export FRONTEND_PORT
+export VITE_BACKEND_URL
+
 # Port configuration with fallbacks
 SERVER_PORT=${BACKEND_PORT:-8000}
 CLIENT_PORT=${FRONTEND_PORT:-5173}
