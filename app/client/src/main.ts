@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Helper function to get download icon
 function getDownloadIcon(): string {
-  return '📊 CSV';
+  return '📊 CSV Export';
 }
 
 // Query Input Functionality
@@ -239,7 +239,7 @@ function displayResults(response: QueryResponse, query: string) {
     // Create export button
     const exportButton = document.createElement('button');
     exportButton.className = 'export-button secondary-button';
-    exportButton.innerHTML = `${getDownloadIcon()} Export`;
+    exportButton.innerHTML = getDownloadIcon();
     exportButton.title = 'Export results as CSV';
     exportButton.onclick = async () => {
       try {
