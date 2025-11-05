@@ -6,7 +6,7 @@
     },
     "contextOptions": {
       "recordVideo": {
-        "dir": "./videos",
+        "dir": "/Users/slysik/tac/tac-7/trees/f719086e/videos",
         "size": {
           "width": 1920,
           "height": 1080
