@@ -21,10 +21,12 @@ from core.data_models import (
     ColumnInfo,
     RandomQueryResponse,
     ExportRequest,
-    QueryExportRequest
+    QueryExportRequest,
+    GenerateDataRequest,
+    GenerateDataResponse
 )
 from core.file_processor import convert_csv_to_sqlite, convert_json_to_sqlite, convert_jsonl_to_sqlite
-from core.llm_processor import generate_sql, generate_random_query
+from core.llm_processor import generate_sql, generate_random_query, generate_synthetic_data
 from core.sql_processor import execute_sql_safely, get_database_schema
 from core.insights import generate_insights
 from core.sql_security import (
@@ -308,6 +310,119 @@ async def delete_table(table_name: str):
         logger.error(f"[ERROR] Table deletion failed: {str(e)}")
         logger.error(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
         raise HTTPException(500, f"Error deleting table: {str(e)}")
+
+@app.post("/api/generate-data", response_model=GenerateDataResponse)
+async def generate_data_endpoint(request: GenerateDataRequest) -> GenerateDataResponse:
+    """Generate synthetic data for a table using LLM"""
+    try:
+        table_name = request.table_name
+
+        # Validate table name using security module
+        try:
+            validate_identifier(table_name, "table")
+        except SQLSecurityError as e:
+            return GenerateDataResponse(
+                rows_added=0,
+                new_row_count=0,
+                table_name=table_name,
+                error=str(e)
+            )
+
+        # Connect to database
+        conn = sqlite3.connect("db/database.db")
+        cursor = conn.cursor()
+
+        try:
+            # Check if table exists
+            if not check_table_exists(conn, table_name):
+                return GenerateDataResponse(
+                    rows_added=0,
+                    new_row_count=0,
+                    table_name=table_name,
+                    error=f"Table '{table_name}' not found"
+                )
+
+            # Get current row count
+            cursor.execute(f"SELECT COUNT(*) FROM \"{table_name}\"")
+            initial_row_count = cursor.fetchone()[0]
+
+            # Check if table has at least 1 row
+            if initial_row_count == 0:
+                return GenerateDataResponse(
+                    rows_added=0,
+                    new_row_count=0,
+                    table_name=table_name,
+                    error="Cannot generate data for empty table. Please add at least one row first."
+                )
+
+            # Sample up to 10 random rows
+            sample_limit = min(10, initial_row_count)
+            cursor.execute(f"SELECT * FROM \"{table_name}\" ORDER BY RANDOM() LIMIT {sample_limit}")
+            rows = cursor.fetchall()
+
+            # Get column names
+            column_names = [description[0] for description in cursor.description]
+
+            # Convert rows to list of dicts
+            sample_rows = []
+            for row in rows:
+                sample_rows.append(dict(zip(column_names, row)))
+
+            # Get table schema from database
+            cursor.execute(f"PRAGMA table_info(\"{table_name}\")")
+            schema_rows = cursor.fetchall()
+
+            # Build schema_info dict: column_name -> type
+            schema_info = {}
+            for schema_row in schema_rows:
+                col_name = schema_row[1]
+                col_type = schema_row[2]
+                schema_info[col_name] = col_type
+
+            # Generate synthetic data using LLM
+            generated_rows = generate_synthetic_data(table_name, schema_info, sample_rows)
+
+            # Insert generated rows using parameterized queries
+            rows_added = 0
+            for row_data in generated_rows:
+                # Build INSERT statement with placeholders
+                columns = list(row_data.keys())
+                placeholders = ", ".join(["?" for _ in columns])
+                column_names_str = ", ".join([f'"{col}"' for col in columns])
+
+                insert_sql = f'INSERT INTO "{table_name}" ({column_names_str}) VALUES ({placeholders})'
+                values = [row_data[col] for col in columns]
+
+                cursor.execute(insert_sql, values)
+                rows_added += 1
+
+            # Commit all insertions
+            conn.commit()
+
+            # Get new row count
+            cursor.execute(f"SELECT COUNT(*) FROM \"{table_name}\"")
+            new_row_count = cursor.fetchone()[0]
+
+            response = GenerateDataResponse(
+                rows_added=rows_added,
+                new_row_count=new_row_count,
+                table_name=table_name
+            )
+            logger.info(f"[SUCCESS] Generated {rows_added} rows for table '{table_name}'. New total: {new_row_count}")
+            return response
+
+        finally:
+            conn.close()
+
+    except Exception as e:
+        logger.error(f"[ERROR] Data generation failed: {str(e)}")
+        logger.error(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+        return GenerateDataResponse(
+            rows_added=0,
+            new_row_count=0,
+            table_name=request.table_name,
+            error=str(e)
+        )
 
 @app.post("/api/export/table")
 async def export_table(request: ExportRequest) -> Response:

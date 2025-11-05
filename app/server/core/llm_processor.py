@@ -1,5 +1,6 @@
 import os
-from typing import Dict, Any
+import json
+from typing import Dict, Any, List
 from openai import OpenAI
 from anthropic import Anthropic
 from core.data_models import QueryRequest
@@ -271,15 +272,236 @@ def generate_sql(request: QueryRequest, schema_info: Dict[str, Any]) -> str:
     """
     openai_key = os.environ.get("OPENAI_API_KEY")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-    
+
     # Check API key availability first (OpenAI priority)
     if openai_key:
         return generate_sql_with_openai(request.query, schema_info)
     elif anthropic_key:
         return generate_sql_with_anthropic(request.query, schema_info)
-    
+
     # Fall back to request preference if both keys available or neither available
     if request.llm_provider == "openai":
         return generate_sql_with_openai(request.query, schema_info)
     else:
         return generate_sql_with_anthropic(request.query, schema_info)
+
+def generate_synthetic_data_with_openai(table_name: str, schema_info: Dict[str, Any], sample_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Generate synthetic data using OpenAI API
+    """
+    try:
+        # Get API key from environment
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable not set")
+
+        client = OpenAI(api_key=api_key)
+
+        # Format schema for prompt
+        schema_lines = []
+        for col_name, col_type in schema_info.items():
+            schema_lines.append(f"  - {col_name}: {col_type}")
+        schema_description = "\n".join(schema_lines)
+
+        # Format sample rows for prompt
+        sample_json = json.dumps(sample_rows, indent=2)
+
+        # Create prompt
+        prompt = f"""Given the following table schema and sample data, generate 10 new realistic synthetic data rows.
+
+Table: {table_name}
+
+Schema:
+{schema_description}
+
+Sample Data (for pattern analysis):
+{sample_json}
+
+Your task:
+1. Analyze the data types and formats for each column
+2. Study the value ranges and distributions in the sample data
+3. Identify relationships between columns (e.g., city/state consistency)
+4. Recognize common patterns (email formats, phone numbers, addresses, dates, etc.)
+5. Respect nullable vs required fields (use null where appropriate)
+6. Generate exactly 10 new rows with realistic variety (avoid repetitive patterns like "User 1", "User 2")
+
+IMPORTANT:
+- Return ONLY a valid JSON array of 10 objects
+- Each object must have the EXACT same keys as the schema
+- Use realistic data that matches the patterns in the sample data
+- Ensure variety in the generated data (different names, emails, values, etc.)
+- For emails, use realistic domains like gmail.com, yahoo.com, outlook.com
+- For phone numbers, use valid formats consistent with sample data
+- For addresses, use real city/state/country combinations
+- For dates, use realistic date formats consistent with sample data
+- Do NOT include any explanations, markdown, or extra text - ONLY the JSON array
+
+Example output format:
+[
+  {{"column1": "value1", "column2": "value2", ...}},
+  {{"column1": "value3", "column2": "value4", ...}},
+  ...
+]"""
+
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4.1-2025-04-14",
+            messages=[
+                {"role": "system", "content": "You are a data generation expert. Generate realistic synthetic data that matches patterns in sample data."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.8,
+            max_tokens=2000
+        )
+
+        result = response.choices[0].message.content.strip()
+
+        # Clean up the result (remove markdown if present)
+        if result.startswith("```json"):
+            result = result[7:]
+        if result.startswith("```"):
+            result = result[3:]
+        if result.endswith("```"):
+            result = result[:-3]
+        result = result.strip()
+
+        # Parse JSON
+        generated_data = json.loads(result)
+
+        # Validate that we got exactly 10 rows
+        if not isinstance(generated_data, list):
+            raise ValueError("Generated data is not a list")
+        if len(generated_data) != 10:
+            raise ValueError(f"Expected 10 rows, got {len(generated_data)}")
+
+        # Validate that each row has the correct columns
+        expected_columns = set(schema_info.keys())
+        for i, row in enumerate(generated_data):
+            row_columns = set(row.keys())
+            if row_columns != expected_columns:
+                raise ValueError(f"Row {i} has incorrect columns. Expected {expected_columns}, got {row_columns}")
+
+        return generated_data
+
+    except json.JSONDecodeError as e:
+        raise Exception(f"Error parsing JSON from OpenAI: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Error generating synthetic data with OpenAI: {str(e)}")
+
+def generate_synthetic_data_with_anthropic(table_name: str, schema_info: Dict[str, Any], sample_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Generate synthetic data using Anthropic API
+    """
+    try:
+        # Get API key from environment
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+
+        client = Anthropic(api_key=api_key)
+
+        # Format schema for prompt
+        schema_lines = []
+        for col_name, col_type in schema_info.items():
+            schema_lines.append(f"  - {col_name}: {col_type}")
+        schema_description = "\n".join(schema_lines)
+
+        # Format sample rows for prompt
+        sample_json = json.dumps(sample_rows, indent=2)
+
+        # Create prompt
+        prompt = f"""Given the following table schema and sample data, generate 10 new realistic synthetic data rows.
+
+Table: {table_name}
+
+Schema:
+{schema_description}
+
+Sample Data (for pattern analysis):
+{sample_json}
+
+Your task:
+1. Analyze the data types and formats for each column
+2. Study the value ranges and distributions in the sample data
+3. Identify relationships between columns (e.g., city/state consistency)
+4. Recognize common patterns (email formats, phone numbers, addresses, dates, etc.)
+5. Respect nullable vs required fields (use null where appropriate)
+6. Generate exactly 10 new rows with realistic variety (avoid repetitive patterns like "User 1", "User 2")
+
+IMPORTANT:
+- Return ONLY a valid JSON array of 10 objects
+- Each object must have the EXACT same keys as the schema
+- Use realistic data that matches the patterns in the sample data
+- Ensure variety in the generated data (different names, emails, values, etc.)
+- For emails, use realistic domains like gmail.com, yahoo.com, outlook.com
+- For phone numbers, use valid formats consistent with sample data
+- For addresses, use real city/state/country combinations
+- For dates, use realistic date formats consistent with sample data
+- Do NOT include any explanations, markdown, or extra text - ONLY the JSON array
+
+Example output format:
+[
+  {{"column1": "value1", "column2": "value2", ...}},
+  {{"column1": "value3", "column2": "value4", ...}},
+  ...
+]"""
+
+        # Call Anthropic API
+        response = client.messages.create(
+            model="claude-sonnet-4-0",
+            max_tokens=2000,
+            temperature=0.8,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        result = response.content[0].text.strip()
+
+        # Clean up the result (remove markdown if present)
+        if result.startswith("```json"):
+            result = result[7:]
+        if result.startswith("```"):
+            result = result[3:]
+        if result.endswith("```"):
+            result = result[:-3]
+        result = result.strip()
+
+        # Parse JSON
+        generated_data = json.loads(result)
+
+        # Validate that we got exactly 10 rows
+        if not isinstance(generated_data, list):
+            raise ValueError("Generated data is not a list")
+        if len(generated_data) != 10:
+            raise ValueError(f"Expected 10 rows, got {len(generated_data)}")
+
+        # Validate that each row has the correct columns
+        expected_columns = set(schema_info.keys())
+        for i, row in enumerate(generated_data):
+            row_columns = set(row.keys())
+            if row_columns != expected_columns:
+                raise ValueError(f"Row {i} has incorrect columns. Expected {expected_columns}, got {row_columns}")
+
+        return generated_data
+
+    except json.JSONDecodeError as e:
+        raise Exception(f"Error parsing JSON from Anthropic: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Error generating synthetic data with Anthropic: {str(e)}")
+
+def generate_synthetic_data(table_name: str, schema_info: Dict[str, Any], sample_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Route to appropriate LLM provider for synthetic data generation
+    Priority: 1) OpenAI API key exists, 2) Anthropic API key exists
+    """
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    # Check API key availability (OpenAI priority)
+    if openai_key:
+        return generate_synthetic_data_with_openai(table_name, schema_info, sample_rows)
+    elif anthropic_key:
+        return generate_synthetic_data_with_anthropic(table_name, schema_info, sample_rows)
+    else:
+        raise ValueError("No LLM API key found. Please set either OPENAI_API_KEY or ANTHROPIC_API_KEY")
