@@ -7,6 +7,7 @@ A web application that converts natural language queries to SQL using AI, built 
 - 🗣️ Natural language to SQL conversion using OpenAI or Anthropic
 - 📁 Drag-and-drop file upload (.csv and .json)
 - 📊 Interactive table results display
+- 🤖 LLM-based synthetic data generation
 - 🔒 SQL injection protection
 - ⚡ Fast development with Vite and uv
 
@@ -88,7 +89,10 @@ bun run dev
 2. **Query Your Data**: Type a natural language query like "Show me all users who signed up last week"
    - Press `Cmd+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux) to run the query
 3. **View Results**: See the generated SQL and results in a table format
-4. **Manage Tables**: Click the × button on any table to remove it
+4. **Generate Data**: Click the "⚡ Generate" button next to any table to automatically generate 10 realistic synthetic data rows using AI
+   - The system analyzes existing data patterns and generates realistic synthetic data
+   - Works with tables that have at least 1 existing row
+5. **Manage Tables**: Click the × button on any table to remove it
 
 ## Development
 
@@ -132,6 +136,7 @@ bun run preview            # Preview production build
 - `POST /api/query` - Process natural language query
 - `GET /api/schema` - Get database schema
 - `POST /api/insights` - Generate column insights
+- `POST /api/generate-data` - Generate synthetic data for a table using LLM
 - `GET /api/health` - Health check
 
 ## Security
