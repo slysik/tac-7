@@ -93,3 +93,13 @@ class ExportRequest(BaseModel):
 class QueryExportRequest(BaseModel):
     data: List[Dict[str, Any]] = Field(..., description="Query result data to export")
     columns: List[str] = Field(..., description="Column names for the export")
+
+# Data Generation Models
+class GenerateDataRequest(BaseModel):
+    table_name: str = Field(..., description="Name of the table to generate data for")
+
+class GenerateDataResponse(BaseModel):
+    rows_added: int = Field(..., description="Number of rows successfully added")
+    new_row_count: int = Field(..., description="Total number of rows in table after generation")
+    table_name: str = Field(..., description="Name of the table that was modified")
+    error: Optional[str] = None
