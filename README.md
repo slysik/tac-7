@@ -243,6 +243,41 @@ cd adws/
 uv run trigger_webhook.py
 ```
 
+### Workflow Scripts
+
+The ADW system uses several specialized scripts for isolated workflow execution:
+
+#### adw_document_iso.py
+Generates and commits documentation changes in an isolated worktree environment.
+
+**Workflow**:
+1. Loads state and validates worktree exists
+2. Finds spec file from worktree
+3. Analyzes git changes in worktree
+4. Generates feature documentation via the `/document` agent
+5. Updates conditional docs
+6. Commits documentation in worktree
+7. Tracks agentic KPIs
+8. Finalizes git operations (push and PR)
+
+**Usage**:
+```bash
+cd adws/
+uv run adw_document_iso.py <issue-number> <adw-id>
+```
+
+**Requirements**:
+- Must be run after `adw_plan_iso.py` or `adw_patch_iso.py` (requires existing worktree and state)
+- Requires `adw-id` to locate the worktree
+- State file must exist for the given `adw-id`
+
+**Features**:
+- Executes documentation generation in isolated environment
+- Skips documentation if no changes detected
+- Validates spec file existence before processing
+- Posts workflow progress updates to GitHub issues
+- Never fails due to KPI tracking errors (always continues)
+
 ### How ADW Works
 
 1. **Issue Classification**: Analyzes GitHub issues and determines type (`/chore`, `/bug`, `/feature`)
