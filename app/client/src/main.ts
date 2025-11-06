@@ -106,13 +106,23 @@ async function generateRandomQuery() {
   try {
     const response = await api.generateRandomQuery();
 
-    // Always populate the query input field, even with error messages
-    queryInput.value = response.query;
-    queryInput.focus();
-
+    // Check for errors first
     if (response.error && response.error !== "No tables found in database") {
-      // Only show errors for unexpected failures
-      displayError(response.error);
+      // Show errors for unexpected failures
+      displayError(`Failed to generate query: ${response.error}`);
+      // Don't populate input field if there was an error
+      return;
+    }
+
+    // Populate the query input field only if we have a valid query
+    if (response.query && response.query.trim().length > 0) {
+      queryInput.value = response.query;
+      queryInput.focus();
+    } else if (response.error === "No tables found in database") {
+      // Silently handle case where no tables exist
+      queryInput.value = "Please upload some data first.";
+    } else {
+      displayError("Generated query is empty");
     }
   } catch (error) {
     displayError(error instanceof Error ? error.message : 'Failed to generate random query');

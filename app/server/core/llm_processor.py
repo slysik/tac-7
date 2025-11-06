@@ -353,6 +353,10 @@ Example output format:
 
         result = response.choices[0].message.content.strip()
 
+        # Validate that we got a response
+        if not result:
+            raise ValueError("OpenAI API returned empty response. This may indicate a timeout or API issue.")
+
         # Clean up the result (remove markdown if present)
         if result.startswith("```json"):
             result = result[7:]
@@ -361,6 +365,10 @@ Example output format:
         if result.endswith("```"):
             result = result[:-3]
         result = result.strip()
+
+        # Validate again after cleanup
+        if not result:
+            raise ValueError("Result is empty after cleanup. Original response may have been invalid.")
 
         # Parse JSON
         generated_data = json.loads(result)
@@ -455,6 +463,10 @@ Example output format:
 
         result = response.content[0].text.strip()
 
+        # Validate that we got a response
+        if not result:
+            raise ValueError("Anthropic API returned empty response. This may indicate a timeout or API issue.")
+
         # Clean up the result (remove markdown if present)
         if result.startswith("```json"):
             result = result[7:]
@@ -463,6 +475,10 @@ Example output format:
         if result.endswith("```"):
             result = result[:-3]
         result = result.strip()
+
+        # Validate again after cleanup
+        if not result:
+            raise ValueError("Result is empty after cleanup. Original response may have been invalid.")
 
         # Parse JSON
         generated_data = json.loads(result)
