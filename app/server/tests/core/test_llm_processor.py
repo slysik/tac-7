@@ -42,8 +42,7 @@ class TestLLMProcessor:
             # Verify the API call parameters
             call_args = mock_client.chat.completions.create.call_args
             assert call_args[1]['model'] == 'o4-mini-2025-04-16'
-            assert call_args[1]['temperature'] == 0.1
-            assert call_args[1]['max_tokens'] == 500
+            assert call_args[1]['max_completion_tokens'] == 500
     
     @patch('core.llm_processor.OpenAI')
     def test_generate_sql_with_openai_clean_markdown(self, mock_openai_class):

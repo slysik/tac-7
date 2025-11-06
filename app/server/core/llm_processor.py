@@ -343,7 +343,7 @@ Example output format:
 
         # Call OpenAI API
         response = client.chat.completions.create(
-            model="gpt-4.1-2025-04-14",
+            model="o4-mini-2025-04-16",
             messages=[
                 {"role": "system", "content": "You are a data generation expert. Generate realistic synthetic data that matches patterns in sample data."},
                 {"role": "user", "content": prompt}
