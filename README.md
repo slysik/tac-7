@@ -1,13 +1,14 @@
 # Natural Language SQL Interface
 
-A web application that converts natural language queries to SQL using AI, built with FastAPI and Vite + TypeScript.
+A web application that converts natural language queries to SQL using AI, built with FastAPI, Snowflake, and Vite + TypeScript.
 
 ## Features
 
 - 🗣️ Natural language to SQL conversion using OpenAI or Anthropic
-- 📁 Drag-and-drop file upload (.csv and .json)
+- 📁 Drag-and-drop file upload (.csv, .json, and .jsonl)
 - 📊 Interactive table results display
 - 🤖 LLM-based synthetic data generation
+- ☁️ Cloud-native Snowflake data warehouse backend
 - 🔒 SQL injection protection
 - ⚡ Fast development with Vite and uv
 
@@ -18,6 +19,7 @@ A web application that converts natural language queries to SQL using AI, built 
 - Node.js 18+
 - Bun (or your preferred npm tool: npm, yarn, etc.)
 - OpenAI API key and/or Anthropic API key
+- Snowflake account with credentials (account, user, password, role, warehouse, database, schema)
 
 ## Setup
 
@@ -35,18 +37,28 @@ bun install
 
 ### 2. Environment Configuration
 
-Set up your API keys in the server directory:
-
-```bash
-cp .env.sample .env
-# Edit .env and add your API keys
-```
-
+Set up your API keys and Snowflake credentials in the server directory:
 
 ```bash
 cd app/server
 cp .env.sample .env
-# Edit .env and add your API keys
+# Edit .env and add your API keys and Snowflake credentials
+```
+
+Required environment variables in `.env`:
+```bash
+# LLM API Keys (at least one required)
+OPENAI_API_KEY=your-openai-api-key
+ANTHROPIC_API_KEY=your-anthropic-api-key
+
+# Snowflake Database Configuration (all required)
+SNOWFLAKE_ACCOUNT=your-account-id
+SNOWFLAKE_USER=your-username
+SNOWFLAKE_PASSWORD=your-password
+SNOWFLAKE_ROLE=your-role
+SNOWFLAKE_WAREHOUSE=your-warehouse
+SNOWFLAKE_DATABASE=your-database
+SNOWFLAKE_SCHEMA=your-schema
 ```
 
 ## Quick Start
@@ -84,15 +96,21 @@ bun run dev
 
 1. **Upload Data**: Click "Upload" to open the modal
    - Use sample data buttons for quick testing
-   - Or drag and drop your own .csv or .json files
+   - Or drag and drop your own .csv, .json, or .jsonl files
+   - Files are uploaded to your Snowflake data warehouse
    - Uploading a file with the same name will overwrite the existing table
+   - Table names are automatically converted to uppercase (Snowflake convention)
 2. **Query Your Data**: Type a natural language query like "Show me all users who signed up last week"
    - Press `Cmd+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux) to run the query
+   - Queries execute against Snowflake tables
 3. **View Results**: See the generated SQL and results in a table format
+   - SQL uses Snowflake syntax with double-quoted identifiers
+   - Data types displayed are Snowflake types (NUMBER, VARCHAR, etc.)
 4. **Generate Data**: Click the "⚡ Generate" button next to any table to automatically generate 10 realistic synthetic data rows using AI
    - The system analyzes existing data patterns and generates realistic synthetic data
    - Works with tables that have at least 1 existing row
-5. **Manage Tables**: Click the × button on any table to remove it
+   - New rows are inserted directly into Snowflake
+5. **Manage Tables**: Click the × button on any table to remove it from Snowflake
 
 ## Development
 
@@ -132,12 +150,15 @@ bun run preview            # Preview production build
 
 ## API Endpoints
 
-- `POST /api/upload` - Upload CSV/JSON file
-- `POST /api/query` - Process natural language query
-- `GET /api/schema` - Get database schema
-- `POST /api/insights` - Generate column insights
-- `POST /api/generate-data` - Generate synthetic data for a table using LLM
-- `GET /api/health` - Health check
+- `POST /api/upload` - Upload CSV/JSON/JSONL file to Snowflake
+- `POST /api/query` - Process natural language query against Snowflake
+- `GET /api/schema` - Get Snowflake database schema
+- `POST /api/insights` - Generate column insights from Snowflake tables
+- `POST /api/generate-data` - Generate synthetic data for a Snowflake table using LLM
+- `DELETE /api/table/{table_name}` - Delete a table from Snowflake
+- `POST /api/export/table` - Export Snowflake table as CSV
+- `POST /api/export/query` - Export query results as CSV
+- `GET /api/health` - Health check (includes Snowflake connection status)
 
 ## Security
 
@@ -148,7 +169,7 @@ The application implements comprehensive SQL injection protection through multip
 1. **Centralized Security Module** (`core/sql_security.py`):
    - Identifier validation for table and column names
    - Safe query execution with parameterized queries
-   - Proper escaping for identifiers using SQLite's square bracket notation
+   - Proper escaping for identifiers using Snowflake's double-quote notation
    - Dangerous operation detection and blocking
 
 2. **Input Validation**:
@@ -190,8 +211,9 @@ uv run pytest tests/test_sql_injection.py -v
 ### Additional Security Features
 
 - CORS configured for local development only
-- File upload validation (CSV and JSON only)
+- File upload validation (CSV, JSON, and JSONL only)
 - Comprehensive error logging without exposing sensitive data
+- Snowflake connection credentials stored securely in environment variables
 - Database operations are isolated with proper connection handling
 
 ## AI Developer Workflow (ADW)
@@ -257,8 +279,16 @@ For detailed technical documentation, configuration options, and troubleshooting
 ## Troubleshooting
 
 **Backend won't start:**
-- Check Python version: `python --version` (requires 3.12+)
+- Check Python version: `python --version` (requires 3.10+)
 - Verify API keys are set: `echo $OPENAI_API_KEY`
+- Verify Snowflake credentials in `.env` file
+- Test Snowflake connection: `cd app/server && uv run python -c "from core.database import test_connection; print(test_connection())"`
+
+**Database connection errors:**
+- Verify all Snowflake environment variables are set correctly
+- Check Snowflake account status and warehouse availability
+- Ensure your IP is whitelisted in Snowflake if network policies are enabled
+- Verify credentials have necessary permissions (CREATE TABLE, INSERT, SELECT, etc.)
 
 **Frontend errors:**
 - Clear node_modules: `rm -rf node_modules && bun install`
@@ -267,3 +297,7 @@ For detailed technical documentation, configuration options, and troubleshooting
 **CORS issues:**
 - Ensure backend is running on port 8000
 - Check vite.config.ts proxy settings
+
+**Table name issues:**
+- Remember that Snowflake stores table names in uppercase
+- Use exact table names as returned by the schema endpoint

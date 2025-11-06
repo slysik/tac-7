@@ -1,9 +1,11 @@
 import json
 import pandas as pd
-import sqlite3
 import io
 import re
 from typing import Dict, Any, Set
+from snowflake.connector import DictCursor
+from snowflake.connector.pandas_tools import write_pandas
+from .database import get_snowflake_connection
 from .sql_security import (
     execute_query_safely,
     validate_identifier,
@@ -13,7 +15,7 @@ from .constants import NESTED_DELIMITER, LIST_INDEX_DELIMITER
 
 def sanitize_table_name(table_name: str) -> str:
     """
-    Sanitize table name for SQLite by removing/replacing bad characters
+    Sanitize table name for Snowflake by removing/replacing bad characters
     and validating against SQL injection
     """
     # Remove file extension if present
@@ -42,137 +44,149 @@ def sanitize_table_name(table_name: str) -> str:
 
 def convert_csv_to_sqlite(csv_content: bytes, table_name: str, db_path: str = "db/database.db") -> Dict[str, Any]:
     """
-    Convert CSV file content to SQLite table
+    Convert CSV file content to Snowflake table
+    Note: db_path parameter kept for backwards compatibility but not used with Snowflake
     """
     try:
         # Sanitize table name
         table_name = sanitize_table_name(table_name)
-        
+
         # Read CSV into pandas DataFrame
         df = pd.read_csv(io.BytesIO(csv_content))
-        
+
         # Clean column names
         df.columns = [col.lower().replace(' ', '_').replace('-', '_') for col in df.columns]
-        
-        # Connect to SQLite database
-        conn = sqlite3.connect(db_path)
-        
-        # Write DataFrame to SQLite
-        df.to_sql(table_name, conn, if_exists='replace', index=False)
-        
-        # Get schema information using safe query execution
+
+        # Connect to Snowflake database
+        conn = get_snowflake_connection()
+
+        # Write DataFrame to Snowflake using write_pandas
+        success, nchunks, nrows, _ = write_pandas(
+            conn, df, table_name.upper(), auto_create_table=True, overwrite=True
+        )
+
+        # Get schema information using INFORMATION_SCHEMA
         cursor_info = execute_query_safely(
             conn,
-            "PRAGMA table_info({table})",
-            identifier_params={'table': table_name}
+            """SELECT COLUMN_NAME, DATA_TYPE
+               FROM INFORMATION_SCHEMA.COLUMNS
+               WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
+               AND TABLE_NAME = {table}""",
+            identifier_params={'table': table_name.upper()}
         )
         columns_info = cursor_info.fetchall()
-        
+
         schema = {}
         for col in columns_info:
-            schema[col[1]] = col[2]  # column_name: data_type
-        
+            schema[col[0]] = col[1]  # column_name: data_type
+
         # Get sample data using safe query execution
         cursor_sample = execute_query_safely(
             conn,
             "SELECT * FROM {table} LIMIT 5",
-            identifier_params={'table': table_name}
+            identifier_params={'table': table_name.upper()}
         )
         sample_rows = cursor_sample.fetchall()
-        column_names = [col[1] for col in columns_info]
+        column_names = [col[0] for col in columns_info]
         sample_data = [dict(zip(column_names, row)) for row in sample_rows]
-        
+
         # Get row count using safe query execution
         cursor_count = execute_query_safely(
             conn,
-            "SELECT COUNT(*) FROM {table}",
-            identifier_params={'table': table_name}
+            "SELECT COUNT(*) as cnt FROM {table}",
+            identifier_params={'table': table_name.upper()}
         )
         row_count = cursor_count.fetchone()[0]
-        
+
         conn.close()
-        
+
         return {
-            'table_name': table_name,
+            'table_name': table_name.upper(),
             'schema': schema,
             'row_count': row_count,
             'sample_data': sample_data
         }
-        
+
     except Exception as e:
-        raise Exception(f"Error converting CSV to SQLite: {str(e)}")
+        raise Exception(f"Error converting CSV to Snowflake: {str(e)}")
 
 def convert_json_to_sqlite(json_content: bytes, table_name: str, db_path: str = "db/database.db") -> Dict[str, Any]:
     """
-    Convert JSON file content to SQLite table
+    Convert JSON file content to Snowflake table
+    Note: db_path parameter kept for backwards compatibility but not used with Snowflake
     """
     try:
         # Sanitize table name
         table_name = sanitize_table_name(table_name)
-        
+
         # Parse JSON
         data = json.loads(json_content.decode('utf-8'))
-        
+
         # Ensure it's a list of objects
         if not isinstance(data, list):
             raise ValueError("JSON must be an array of objects")
-        
+
         if not data:
             raise ValueError("JSON array is empty")
-        
+
         # Convert to pandas DataFrame
         df = pd.DataFrame(data)
-        
+
         # Clean column names
         df.columns = [col.lower().replace(' ', '_').replace('-', '_') for col in df.columns]
-        
-        # Connect to SQLite database
-        conn = sqlite3.connect(db_path)
-        
-        # Write DataFrame to SQLite
-        df.to_sql(table_name, conn, if_exists='replace', index=False)
-        
-        # Get schema information using safe query execution
+
+        # Connect to Snowflake database
+        conn = get_snowflake_connection()
+
+        # Write DataFrame to Snowflake using write_pandas
+        success, nchunks, nrows, _ = write_pandas(
+            conn, df, table_name.upper(), auto_create_table=True, overwrite=True
+        )
+
+        # Get schema information using INFORMATION_SCHEMA
         cursor_info = execute_query_safely(
             conn,
-            "PRAGMA table_info({table})",
-            identifier_params={'table': table_name}
+            """SELECT COLUMN_NAME, DATA_TYPE
+               FROM INFORMATION_SCHEMA.COLUMNS
+               WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
+               AND TABLE_NAME = {table}""",
+            identifier_params={'table': table_name.upper()}
         )
         columns_info = cursor_info.fetchall()
-        
+
         schema = {}
         for col in columns_info:
-            schema[col[1]] = col[2]  # column_name: data_type
-        
+            schema[col[0]] = col[1]  # column_name: data_type
+
         # Get sample data using safe query execution
         cursor_sample = execute_query_safely(
             conn,
             "SELECT * FROM {table} LIMIT 5",
-            identifier_params={'table': table_name}
+            identifier_params={'table': table_name.upper()}
         )
         sample_rows = cursor_sample.fetchall()
-        column_names = [col[1] for col in columns_info]
+        column_names = [col[0] for col in columns_info]
         sample_data = [dict(zip(column_names, row)) for row in sample_rows]
-        
+
         # Get row count using safe query execution
         cursor_count = execute_query_safely(
             conn,
-            "SELECT COUNT(*) FROM {table}",
-            identifier_params={'table': table_name}
+            "SELECT COUNT(*) as cnt FROM {table}",
+            identifier_params={'table': table_name.upper()}
         )
         row_count = cursor_count.fetchone()[0]
-        
+
         conn.close()
-        
+
         return {
-            'table_name': table_name,
+            'table_name': table_name.upper(),
             'schema': schema,
             'row_count': row_count,
             'sample_data': sample_data
         }
-        
+
     except Exception as e:
-        raise Exception(f"Error converting JSON to SQLite: {str(e)}")
+        raise Exception(f"Error converting JSON to Snowflake: {str(e)}")
 
 def flatten_json_object(obj: Any, prefix: str = "") -> Dict[str, Any]:
     """
@@ -235,101 +249,107 @@ def discover_jsonl_fields(jsonl_content: bytes) -> Set[str]:
 
 def convert_jsonl_to_sqlite(jsonl_content: bytes, table_name: str, db_path: str = "db/database.db") -> Dict[str, Any]:
     """
-    Convert JSONL file content to SQLite table with flattened structure.
-    
+    Convert JSONL file content to Snowflake table with flattened structure.
+
     Args:
         jsonl_content: The raw JSONL file content
-        table_name: Name for the SQLite table
-        
+        table_name: Name for the Snowflake table
+        db_path: Not used for Snowflake, kept for backwards compatibility
+
     Returns:
         Dict containing table info, schema, row count, and sample data
     """
     try:
         # Sanitize table name
         table_name = sanitize_table_name(table_name)
-        
+
         # First pass: discover all possible fields
         all_fields = discover_jsonl_fields(jsonl_content)
-        
+
         if not all_fields:
             raise ValueError("No valid JSON objects found in JSONL file")
-        
+
         # Second pass: process each line and create consistent records
         content = jsonl_content.decode('utf-8')
         lines = content.strip().split('\n')
-        
+
         records = []
         for line_num, line in enumerate(lines, 1):
             line = line.strip()
             if not line:
                 continue
-                
+
             try:
                 json_obj = json.loads(line)
                 flattened = flatten_json_object(json_obj)
-                
+
                 # Create record with all fields, filling missing ones with None
                 record = {}
                 for field in all_fields:
                     record[field] = flattened.get(field, None)
-                
+
                 records.append(record)
             except json.JSONDecodeError as e:
                 raise ValueError(f"Invalid JSON on line {line_num}: {str(e)}")
-        
+
         if not records:
             raise ValueError("No valid records found in JSONL file")
-        
+
         # Convert to pandas DataFrame
         df = pd.DataFrame(records)
-        
-        # Clean column names for SQLite compatibility
+
+        # Clean column names for Snowflake compatibility
         df.columns = [col.lower().replace(' ', '_').replace('-', '_') for col in df.columns]
-        
-        # Connect to SQLite database
-        conn = sqlite3.connect(db_path)
-        
-        # Write DataFrame to SQLite
-        df.to_sql(table_name, conn, if_exists='replace', index=False)
-        
-        # Get schema information using safe query execution
+
+        # Connect to Snowflake database
+        conn = get_snowflake_connection()
+
+        # Write DataFrame to Snowflake using write_pandas
+        success, nchunks, nrows, _ = write_pandas(
+            conn, df, table_name.upper(), auto_create_table=True, overwrite=True
+        )
+
+        # Get schema information using INFORMATION_SCHEMA
         cursor_info = execute_query_safely(
             conn,
-            "PRAGMA table_info({table})",
-            identifier_params={'table': table_name}
+            """SELECT COLUMN_NAME, DATA_TYPE
+               FROM INFORMATION_SCHEMA.COLUMNS
+               WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
+               AND TABLE_NAME = {table}""",
+            identifier_params={'table': table_name.upper()}
         )
         columns_info = cursor_info.fetchall()
-        
+
         schema = {}
         for col in columns_info:
-            schema[col[1]] = col[2]  # column_name: data_type
-        
+            schema[col[0]] = col[1]  # column_name: data_type
+
         # Get sample data using safe query execution
         cursor_sample = execute_query_safely(
             conn,
             "SELECT * FROM {table} LIMIT 5",
-            identifier_params={'table': table_name}
+            identifier_params={'table': table_name.upper()}
         )
         sample_rows = cursor_sample.fetchall()
-        column_names = [col[1] for col in columns_info]
+        column_names = [col[0] for col in columns_info]
         sample_data = [dict(zip(column_names, row)) for row in sample_rows]
-        
+
         # Get row count using safe query execution
         cursor_count = execute_query_safely(
             conn,
-            "SELECT COUNT(*) FROM {table}",
-            identifier_params={'table': table_name}
+            "SELECT COUNT(*) as cnt FROM {table}",
+            identifier_params={'table': table_name.upper()}
         )
         row_count = cursor_count.fetchone()[0]
-        
+
         conn.close()
-        
+
         return {
-            'table_name': table_name,
+            'table_name': table_name.upper(),
             'schema': schema,
             'row_count': row_count,
             'sample_data': sample_data
         }
-        
+
     except Exception as e:
-        raise Exception(f"Error converting JSONL to SQLite: {str(e)}")
+        raise Exception(f"Error converting JSONL to Snowflake: {str(e)}")
