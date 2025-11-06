@@ -42,7 +42,7 @@ SQL Query:"""
         
         # Call OpenAI API
         response = client.chat.completions.create(
-            model="o4-mini-2025-04-16",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a SQL expert. Convert natural language to SQL queries."},
                 {"role": "user", "content": prompt}
@@ -152,18 +152,18 @@ def generate_random_query_with_openai(schema_info: Dict[str, Any]) -> str:
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable not set")
-        
+
         client = OpenAI(api_key=api_key)
-        
+
         # Format schema for prompt
         schema_description = format_schema_for_prompt(schema_info)
-        
+
         # Create prompt
         prompt = f"""Given the following database schema:
 
 {schema_description}
 
-Generate an interesting natural language query that someone might ask about this data. 
+Generate an interesting natural language query that someone might ask about this data.
 The query should be:
 - Contextually relevant to the table structures and columns
 - Natural and conversational
@@ -178,10 +178,10 @@ Examples of good queries:
 - "Which employees have the highest average sales? List their names and departments."
 
 Natural language query:"""
-        
+
         # Call OpenAI API
         response = client.chat.completions.create(
-            model="o4-mini-2025-04-16",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that generates interesting questions about data."},
                 {"role": "user", "content": prompt}
@@ -353,7 +353,7 @@ Example output format:
 
         # Call OpenAI API
         response = client.chat.completions.create(
-            model="o4-mini-2025-04-16",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a data generation expert. Generate realistic synthetic data that matches patterns in sample data."},
                 {"role": "user", "content": prompt}
