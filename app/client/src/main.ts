@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initializeFileUpload();
   initializeModal();
   initializeRandomQueryButton();
+  initializeEnhancedDropZones();
   loadDatabaseSchema();
 });
 
@@ -161,7 +162,7 @@ function initializeFileUpload() {
 async function handleFileUpload(file: File) {
   try {
     const response = await api.uploadFile(file);
-    
+
     if (response.error) {
       displayError(response.error);
     } else {
@@ -170,6 +171,114 @@ async function handleFileUpload(file: File) {
     }
   } catch (error) {
     displayError(error instanceof Error ? error.message : 'Upload failed');
+  }
+}
+
+// Enhanced Drop Zones - Helper Functions
+function showDropOverlay(element: HTMLElement): HTMLElement {
+  const overlay = document.createElement('div');
+  overlay.className = 'drop-message';
+
+  const text = document.createElement('div');
+  text.className = 'drop-message-text';
+  text.textContent = 'Drop to create table';
+
+  overlay.appendChild(text);
+  element.appendChild(overlay);
+
+  return overlay;
+}
+
+function hideDropOverlay(element: HTMLElement): void {
+  const overlay = element.querySelector('.drop-message');
+  if (overlay) {
+    overlay.remove();
+  }
+}
+
+function isValidFileType(file: File): boolean {
+  const validExtensions = ['.csv', '.json', '.jsonl'];
+  const fileName = file.name.toLowerCase();
+  return validExtensions.some(ext => fileName.endsWith(ext));
+}
+
+function hasFiles(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false;
+  return Array.from(dataTransfer.types).includes('Files');
+}
+
+// Initialize Enhanced Drop Zones
+function initializeEnhancedDropZones() {
+  const querySection = document.getElementById('query-section') as HTMLElement;
+  const tablesSection = document.getElementById('tables-section') as HTMLElement;
+
+  // Setup drop zone for query section
+  if (querySection) {
+    setupDropZone(querySection);
+  }
+
+  // Setup drop zone for tables section
+  if (tablesSection) {
+    setupDropZone(tablesSection);
+  }
+
+  function setupDropZone(element: HTMLElement) {
+    let localDragCounter = 0;
+
+    element.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      const dataTransfer = (e as DragEvent).dataTransfer;
+
+      if (hasFiles(dataTransfer)) {
+        localDragCounter++;
+        if (localDragCounter === 1) {
+          element.classList.add('dragover');
+          showDropOverlay(element);
+        }
+      }
+    });
+
+    element.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const dataTransfer = (e as DragEvent).dataTransfer;
+
+      if (hasFiles(dataTransfer) && dataTransfer) {
+        dataTransfer.dropEffect = 'copy';
+      }
+    });
+
+    element.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      localDragCounter--;
+
+      if (localDragCounter === 0) {
+        element.classList.remove('dragover');
+        hideDropOverlay(element);
+      }
+    });
+
+    element.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      localDragCounter = 0;
+      element.classList.remove('dragover');
+      hideDropOverlay(element);
+
+      const dataTransfer = (e as DragEvent).dataTransfer;
+      const files = dataTransfer?.files;
+
+      if (files && files.length > 0) {
+        const file = files[0];
+
+        if (!isValidFileType(file)) {
+          displayError('Invalid file type. Please upload a .csv, .json, or .jsonl file.');
+          return;
+        }
+
+        await handleFileUpload(file);
+      }
+    });
   }
 }
 
