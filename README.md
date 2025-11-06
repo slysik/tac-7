@@ -5,7 +5,7 @@ A web application that converts natural language queries to SQL using AI, built 
 ## Features
 
 - 🗣️ Natural language to SQL conversion using OpenAI or Anthropic
-- 📁 Drag-and-drop file upload (.csv and .json)
+- 📁 Drag-and-drop file upload (.csv, .json, .jsonl, and .parquet)
 - 📊 Interactive table results display
 - 🤖 LLM-based synthetic data generation
 - 🔒 SQL injection protection
@@ -84,7 +84,7 @@ bun run dev
 
 1. **Upload Data**: Click "Upload" to open the modal
    - Use sample data buttons for quick testing
-   - Or drag and drop your own .csv or .json files
+   - Or drag and drop your own .csv, .json, .jsonl, or .parquet files
    - Uploading a file with the same name will overwrite the existing table
 2. **Query Your Data**: Type a natural language query like "Show me all users who signed up last week"
    - Press `Cmd+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux) to run the query
@@ -190,7 +190,7 @@ uv run pytest tests/test_sql_injection.py -v
 ### Additional Security Features
 
 - CORS configured for local development only
-- File upload validation (CSV and JSON only)
+- File upload validation (CSV, JSON, JSONL, and Parquet only)
 - Comprehensive error logging without exposing sensitive data
 - Database operations are isolated with proper connection handling
 
