@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 from openai import OpenAI
 from anthropic import Anthropic
 from core.data_models import QueryRequest
+from core.sql_processor import execute_sql_safely
 
 def generate_sql_with_openai(query_text: str, schema_info: Dict[str, Any]) -> str:
     """
@@ -247,21 +248,76 @@ Natural language query:"""
     except Exception as e:
         raise Exception(f"Error generating random query with Anthropic: {str(e)}")
 
+def generate_validated_random_query(schema_info: Dict[str, Any], max_attempts: int = 5) -> str:
+    """
+    Generate a validated random natural language query that returns data.
+
+    This function generates a random natural language query and validates that it
+    produces at least one row of results. If the query returns no results, it will
+    retry up to max_attempts times.
+
+    Args:
+        schema_info: Database schema information
+        max_attempts: Maximum number of attempts to generate a valid query (default: 5)
+
+    Returns:
+        A natural language query string that is validated to return results
+
+    Raises:
+        Exception: If unable to generate a valid query after max_attempts
+    """
+    for attempt in range(max_attempts):
+        try:
+            # Generate a random natural language query
+            nl_query = generate_random_query_with_openai(schema_info) if os.environ.get("OPENAI_API_KEY") \
+                       else generate_random_query_with_anthropic(schema_info)
+
+            # Convert natural language query to SQL
+            request = QueryRequest(query=nl_query, llm_provider="openai")
+            sql_query = generate_sql(request, schema_info)
+
+            # Execute the SQL query to validate it returns results
+            result = execute_sql_safely(sql_query)
+
+            # Check if we got an error during execution
+            if result.get('error'):
+                # Skip this query and try again
+                continue
+
+            # Check if the query returned at least one row
+            if result.get('results') and len(result['results']) > 0:
+                # Success! Return the validated natural language query
+                return nl_query
+
+            # Query executed successfully but returned no results, try again
+
+        except Exception as e:
+            # Log the error and continue to next attempt
+            # In production, you might want to log this:
+            # logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+            continue
+
+    # If we get here, all attempts failed
+    raise Exception(
+        f"Unable to generate a query that returns results after {max_attempts} attempts. "
+        "Please verify that the database tables contain data."
+    )
+
 def generate_random_query(schema_info: Dict[str, Any]) -> str:
     """
-    Route to appropriate LLM provider for random query generation
+    Route to appropriate LLM provider for random query generation with validation.
+    Ensures the generated query returns at least one row of data.
     Priority: 1) OpenAI API key exists, 2) Anthropic API key exists
     """
     openai_key = os.environ.get("OPENAI_API_KEY")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-    
-    # Check API key availability (OpenAI priority)
-    if openai_key:
-        return generate_random_query_with_openai(schema_info)
-    elif anthropic_key:
-        return generate_random_query_with_anthropic(schema_info)
-    else:
+
+    # Check API key availability
+    if not openai_key and not anthropic_key:
         raise ValueError("No LLM API key found. Please set either OPENAI_API_KEY or ANTHROPIC_API_KEY")
+
+    # Generate and validate random query
+    return generate_validated_random_query(schema_info)
 
 def generate_sql(request: QueryRequest, schema_info: Dict[str, Any]) -> str:
     """
