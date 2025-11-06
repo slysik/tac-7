@@ -5,8 +5,8 @@ and proper escaping mechanisms.
 """
 
 import re
-import sqlite3
 from typing import Any, List, Tuple, Optional, Union
+from snowflake.connector import SnowflakeConnection, DictCursor
 
 
 class SQLSecurityError(Exception):
@@ -74,7 +74,7 @@ def validate_identifier(identifier: str, identifier_type: str = "identifier") ->
 def escape_identifier(identifier: str) -> str:
     """
     Safely escape a SQL identifier for use in queries.
-    Uses SQLite's square bracket notation for escaping.
+    Uses Snowflake's double quote notation for escaping.
 
     Args:
         identifier: The identifier to escape
@@ -85,31 +85,31 @@ def escape_identifier(identifier: str) -> str:
     # First validate the identifier
     validate_identifier(identifier)
 
-    # In SQLite, identifiers can be quoted with square brackets
-    # Double any closing brackets to escape them
-    escaped = identifier.replace("]", "]]")
-    return f"[{escaped}]"
+    # In Snowflake, identifiers are quoted with double quotes
+    # Double any double quotes to escape them
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
 
 
 def execute_query_safely(
-    conn: sqlite3.Connection,
+    conn: SnowflakeConnection,
     query: str,
     params: Optional[Union[Tuple, List]] = None,
     identifier_params: Optional[dict] = None,
     allow_ddl: bool = False,
-) -> sqlite3.Cursor:
+) -> DictCursor:
     """
     Execute a SQL query safely with both value parameters and identifier parameters.
 
     Args:
-        conn: SQLite connection object
+        conn: Snowflake connection object
         query: SQL query with ? placeholders for values and {identifier} for identifiers
         params: Parameters for value placeholders (prevents SQL injection)
         identifier_params: Dictionary of identifier names to be safely escaped
         allow_ddl: If True, allows DDL statements like DROP TABLE (use with caution)
 
     Returns:
-        sqlite3.Cursor: The cursor after executing the query
+        DictCursor: The cursor after executing the query
 
     Example:
         execute_query_safely(
@@ -253,29 +253,29 @@ def build_safe_in_clause(column: str, values: List[Any]) -> Tuple[str, List[Any]
     return clause, values
 
 
-def get_safe_table_list(conn: sqlite3.Connection) -> List[str]:
+def get_safe_table_list(conn: SnowflakeConnection) -> List[str]:
     """
     Get a list of all tables in the database safely.
 
     Args:
-        conn: SQLite connection object
+        conn: Snowflake connection object
 
     Returns:
         List[str]: List of table names
     """
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = CURRENT_SCHEMA()"
     )
     return [row[0] for row in cursor.fetchall()]
 
 
-def check_table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+def check_table_exists(conn: SnowflakeConnection, table_name: str) -> bool:
     """
     Check if a table exists in the database safely.
 
     Args:
-        conn: SQLite connection object
+        conn: Snowflake connection object
         table_name: Name of the table to check
 
     Returns:
@@ -288,7 +288,7 @@ def check_table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
 
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
-        (table_name,),
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = CURRENT_SCHEMA() AND TABLE_NAME = %s",
+        (table_name.upper(),),
     )
     return cursor.fetchone()[0] > 0

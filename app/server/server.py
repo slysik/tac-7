@@ -3,11 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from datetime import datetime
 import os
-import sqlite3
 import traceback
 from dotenv import load_dotenv
 import logging
 import sys
+from snowflake.connector import DictCursor
 
 from core.data_models import (
     FileUploadResponse,
@@ -25,6 +25,7 @@ from core.data_models import (
     GenerateDataRequest,
     GenerateDataResponse
 )
+from core.database import get_snowflake_connection, test_connection
 from core.file_processor import convert_csv_to_sqlite, convert_json_to_sqlite, convert_jsonl_to_sqlite
 from core.llm_processor import generate_sql, generate_random_query, generate_synthetic_data
 from core.sql_processor import execute_sql_safely, get_database_schema
@@ -71,12 +72,9 @@ app.add_middleware(
 # Global app state
 app_start_time = datetime.now()
 
-# Ensure database directory exists
-os.makedirs("db", exist_ok=True)
-
 @app.post("/api/upload", response_model=FileUploadResponse)
 async def upload_file(file: UploadFile = File(...)) -> FileUploadResponse:
-    """Upload and convert .json, .jsonl or .csv file to SQLite table"""
+    """Upload and convert .json, .jsonl or .csv file to Snowflake table"""
     try:
         # Validate file type
         if not file.filename.endswith(('.csv', '.json', '.jsonl')):
@@ -87,8 +85,8 @@ async def upload_file(file: UploadFile = File(...)) -> FileUploadResponse:
         
         # Read file content
         content = await file.read()
-        
-        # Convert to SQLite based on file type
+
+        # Convert to Snowflake based on file type
         if file.filename.endswith('.csv'):
             result = convert_csv_to_sqlite(content, table_name)
         elif file.filename.endswith('.jsonl'):
@@ -245,24 +243,31 @@ async def generate_random_query_endpoint() -> RandomQueryResponse:
 
 @app.get("/api/health", response_model=HealthCheckResponse)
 async def health_check() -> HealthCheckResponse:
-    """Health check endpoint with database status"""
+    """Health check endpoint with Snowflake database status"""
     try:
-        # Check database connection
-        conn = sqlite3.connect("db/database.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = cursor.fetchall()
+        # Check Snowflake database connection
+        conn = get_snowflake_connection()
+        cursor = conn.cursor(DictCursor)
+        cursor.execute("""
+            SELECT COUNT(*) as table_count
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
+            AND TABLE_TYPE = 'BASE TABLE'
+        """)
+        result = cursor.fetchone()
+        table_count = result['TABLE_COUNT'] if result else 0
+        cursor.close()
         conn.close()
-        
+
         uptime = (datetime.now() - app_start_time).total_seconds()
-        
+
         response = HealthCheckResponse(
             status="ok",
             database_connected=True,
-            tables_count=len(tables),
+            tables_count=table_count,
             uptime_seconds=uptime
         )
-        logger.info(f"[SUCCESS] Health check: OK, {len(tables)} tables, uptime: {uptime}s")
+        logger.info(f"[SUCCESS] Health check: OK, {table_count} tables, uptime: {uptime}s")
         return response
     except Exception as e:
         logger.error(f"[ERROR] Health check failed: {str(e)}")
@@ -276,31 +281,31 @@ async def health_check() -> HealthCheckResponse:
 
 @app.delete("/api/table/{table_name}")
 async def delete_table(table_name: str):
-    """Delete a table from the database"""
+    """Delete a table from the Snowflake database"""
     try:
         # Validate table name using security module
         try:
             validate_identifier(table_name, "table")
         except SQLSecurityError as e:
             raise HTTPException(400, str(e))
-        
-        conn = sqlite3.connect("db/database.db")
-        
+
+        conn = get_snowflake_connection()
+
         # Check if table exists using secure method
         if not check_table_exists(conn, table_name):
             conn.close()
             raise HTTPException(404, f"Table '{table_name}' not found")
-        
+
         # Drop the table using safe query execution with DDL permission
         execute_query_safely(
             conn,
             "DROP TABLE IF EXISTS {table}",
-            identifier_params={'table': table_name},
+            identifier_params={'table': table_name.upper()},
             allow_ddl=True
         )
         conn.commit()
         conn.close()
-        
+
         response = {"message": f"Table '{table_name}' deleted successfully"}
         logger.info(f"[SUCCESS] Table deleted: {table_name}")
         return response
@@ -328,9 +333,9 @@ async def generate_data_endpoint(request: GenerateDataRequest) -> GenerateDataRe
                 error=str(e)
             )
 
-        # Connect to database
-        conn = sqlite3.connect("db/database.db")
-        cursor = conn.cursor()
+        # Connect to Snowflake database
+        conn = get_snowflake_connection()
+        cursor = conn.cursor(DictCursor)
 
         try:
             # Check if table exists
@@ -343,8 +348,9 @@ async def generate_data_endpoint(request: GenerateDataRequest) -> GenerateDataRe
                 )
 
             # Get current row count
-            cursor.execute(f"SELECT COUNT(*) FROM \"{table_name}\"")
-            initial_row_count = cursor.fetchone()[0]
+            cursor.execute(f'SELECT COUNT(*) as cnt FROM "{table_name.upper()}"')
+            result = cursor.fetchone()
+            initial_row_count = result['CNT'] if result else 0
 
             # Check if table has at least 1 row
             if initial_row_count == 0:
@@ -355,28 +361,28 @@ async def generate_data_endpoint(request: GenerateDataRequest) -> GenerateDataRe
                     error="Cannot generate data for empty table. Please add at least one row first."
                 )
 
-            # Sample up to 10 random rows
+            # Sample up to 10 random rows (Snowflake uses SAMPLE instead of RANDOM)
             sample_limit = min(10, initial_row_count)
-            cursor.execute(f"SELECT * FROM \"{table_name}\" ORDER BY RANDOM() LIMIT {sample_limit}")
+            cursor.execute(f'SELECT * FROM "{table_name.upper()}" SAMPLE ({sample_limit} ROWS)')
             rows = cursor.fetchall()
 
-            # Get column names
-            column_names = [description[0] for description in cursor.description]
+            # Convert DictCursor rows to list of dicts
+            sample_rows = rows
 
-            # Convert rows to list of dicts
-            sample_rows = []
-            for row in rows:
-                sample_rows.append(dict(zip(column_names, row)))
-
-            # Get table schema from database
-            cursor.execute(f"PRAGMA table_info(\"{table_name}\")")
+            # Get table schema from INFORMATION_SCHEMA
+            cursor.execute(f"""
+                SELECT COLUMN_NAME, DATA_TYPE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = CURRENT_SCHEMA()
+                AND TABLE_NAME = '{table_name.upper()}'
+            """)
             schema_rows = cursor.fetchall()
 
             # Build schema_info dict: column_name -> type
             schema_info = {}
             for schema_row in schema_rows:
-                col_name = schema_row[1]
-                col_type = schema_row[2]
+                col_name = schema_row['COLUMN_NAME']
+                col_type = schema_row['DATA_TYPE']
                 schema_info[col_name] = col_type
 
             # Generate synthetic data using LLM
@@ -387,10 +393,10 @@ async def generate_data_endpoint(request: GenerateDataRequest) -> GenerateDataRe
             for row_data in generated_rows:
                 # Build INSERT statement with placeholders
                 columns = list(row_data.keys())
-                placeholders = ", ".join(["?" for _ in columns])
+                placeholders = ", ".join(["%s" for _ in columns])
                 column_names_str = ", ".join([f'"{col}"' for col in columns])
 
-                insert_sql = f'INSERT INTO "{table_name}" ({column_names_str}) VALUES ({placeholders})'
+                insert_sql = f'INSERT INTO "{table_name.upper()}" ({column_names_str}) VALUES ({placeholders})'
                 values = [row_data[col] for col in columns]
 
                 cursor.execute(insert_sql, values)
@@ -400,8 +406,9 @@ async def generate_data_endpoint(request: GenerateDataRequest) -> GenerateDataRe
             conn.commit()
 
             # Get new row count
-            cursor.execute(f"SELECT COUNT(*) FROM \"{table_name}\"")
-            new_row_count = cursor.fetchone()[0]
+            cursor.execute(f'SELECT COUNT(*) as cnt FROM "{table_name.upper()}"')
+            result = cursor.fetchone()
+            new_row_count = result['CNT'] if result else 0
 
             response = GenerateDataResponse(
                 rows_added=rows_added,
@@ -412,6 +419,7 @@ async def generate_data_endpoint(request: GenerateDataRequest) -> GenerateDataRe
             return response
 
         finally:
+            cursor.close()
             conn.close()
 
     except Exception as e:
@@ -430,19 +438,19 @@ async def export_table(request: ExportRequest) -> Response:
     try:
         # Validate table name
         validate_identifier(request.table_name, "table")
-        
-        # Connect to database
-        conn = sqlite3.connect("db/database.db")
-        
+
+        # Connect to Snowflake database
+        conn = get_snowflake_connection()
+
         # Check if table exists
         if not check_table_exists(conn, request.table_name):
             conn.close()
             raise HTTPException(404, f"Table '{request.table_name}' not found")
-        
+
         # Generate CSV
-        csv_data = generate_csv_from_table(conn, request.table_name)
+        csv_data = generate_csv_from_table(conn, request.table_name.upper())
         conn.close()
-        
+
         # Return CSV response
         return Response(
             content=csv_data,

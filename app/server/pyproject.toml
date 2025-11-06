@@ -12,6 +12,7 @@ dependencies = [
     "anthropic==0.54.0",
     "pandas==2.3.0",
     "python-dotenv==1.0.1",
+    "snowflake-connector-python>=4.0.0",
 ]
 
 [project.optional-dependencies]
