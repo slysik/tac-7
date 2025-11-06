@@ -188,10 +188,15 @@ Natural language query:"""
             ],
             max_completion_tokens=100
         )
-        
+
         query = response.choices[0].message.content.strip()
+
+        # Validate that we got a non-empty response
+        if not query:
+            raise ValueError("OpenAI API returned empty response for random query generation")
+
         return query
-        
+
     except Exception as e:
         raise Exception(f"Error generating random query with OpenAI: {str(e)}")
 
@@ -240,10 +245,15 @@ Natural language query:"""
                 {"role": "user", "content": prompt}
             ]
         )
-        
+
         query = response.content[0].text.strip()
+
+        # Validate that we got a non-empty response
+        if not query:
+            raise ValueError("Anthropic API returned empty response for random query generation")
+
         return query
-        
+
     except Exception as e:
         raise Exception(f"Error generating random query with Anthropic: {str(e)}")
 

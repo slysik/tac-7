@@ -109,22 +109,27 @@ async function generateRandomQuery() {
     // Check for errors first
     if (response.error && response.error !== "No tables found in database") {
       // Show errors for unexpected failures
+      console.error('Random query generation error:', response.error);
       displayError(`Failed to generate query: ${response.error}`);
       // Don't populate input field if there was an error
       return;
     }
 
     // Populate the query input field only if we have a valid query
-    if (response.query && response.query.trim().length > 0) {
-      queryInput.value = response.query;
+    const trimmedQuery = response.query ? response.query.trim() : '';
+    if (trimmedQuery.length > 0) {
+      queryInput.value = trimmedQuery;
       queryInput.focus();
     } else if (response.error === "No tables found in database") {
       // Silently handle case where no tables exist
       queryInput.value = "Please upload some data first.";
     } else {
-      displayError("Generated query is empty");
+      // Log the actual response for debugging
+      console.warn('Random query response:', { query: response.query, error: response.error });
+      displayError("Failed to generate a query. The API returned an empty response. Please try again.");
     }
   } catch (error) {
+    console.error('Random query fetch error:', error);
     displayError(error instanceof Error ? error.message : 'Failed to generate random query');
   } finally {
     if (buttonExists) {
