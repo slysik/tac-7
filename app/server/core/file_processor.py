@@ -11,6 +11,12 @@ from .sql_security import (
 )
 from .constants import NESTED_DELIMITER, LIST_INDEX_DELIMITER
 
+try:
+    import pyarrow.parquet as pq
+    PYARROW_AVAILABLE = True
+except ImportError:
+    PYARROW_AVAILABLE = False
+
 def sanitize_table_name(table_name: str) -> str:
     """
     Sanitize table name for SQLite by removing/replacing bad characters
@@ -330,6 +336,89 @@ def convert_jsonl_to_sqlite(jsonl_content: bytes, table_name: str, db_path: str 
             'row_count': row_count,
             'sample_data': sample_data
         }
-        
+
     except Exception as e:
         raise Exception(f"Error converting JSONL to SQLite: {str(e)}")
+
+def convert_parquet_to_sqlite(parquet_content: bytes, table_name: str, db_path: str = "db/database.db") -> Dict[str, Any]:
+    """
+    Convert Parquet file (including Delta format) content to SQLite table.
+
+    Args:
+        parquet_content: The raw Parquet file content
+        table_name: Name for the SQLite table
+        db_path: Path to SQLite database
+
+    Returns:
+        Dict containing table info, schema, row count, and sample data
+    """
+    if not PYARROW_AVAILABLE:
+        raise Exception(
+            "PyArrow is required to process Parquet files. "
+            "Install it with: pip install pyarrow"
+        )
+
+    try:
+        # Sanitize table name
+        table_name = sanitize_table_name(table_name)
+
+        # Read Parquet file using PyArrow
+        parquet_file = pq.read_table(io.BytesIO(parquet_content))
+
+        # Convert to pandas DataFrame
+        df = parquet_file.to_pandas()
+
+        # Handle missing or invalid data
+        if df.empty:
+            raise ValueError("Parquet file contains no data")
+
+        # Clean column names for SQLite compatibility
+        df.columns = [col.lower().replace(' ', '_').replace('-', '_') for col in df.columns]
+
+        # Connect to SQLite database
+        conn = sqlite3.connect(db_path)
+
+        # Write DataFrame to SQLite
+        df.to_sql(table_name, conn, if_exists='replace', index=False)
+
+        # Get schema information using safe query execution
+        cursor_info = execute_query_safely(
+            conn,
+            "PRAGMA table_info({table})",
+            identifier_params={'table': table_name}
+        )
+        columns_info = cursor_info.fetchall()
+
+        schema = {}
+        for col in columns_info:
+            schema[col[1]] = col[2]  # column_name: data_type
+
+        # Get sample data using safe query execution
+        cursor_sample = execute_query_safely(
+            conn,
+            "SELECT * FROM {table} LIMIT 5",
+            identifier_params={'table': table_name}
+        )
+        sample_rows = cursor_sample.fetchall()
+        column_names = [col[1] for col in columns_info]
+        sample_data = [dict(zip(column_names, row)) for row in sample_rows]
+
+        # Get row count using safe query execution
+        cursor_count = execute_query_safely(
+            conn,
+            "SELECT COUNT(*) FROM {table}",
+            identifier_params={'table': table_name}
+        )
+        row_count = cursor_count.fetchone()[0]
+
+        conn.close()
+
+        return {
+            'table_name': table_name,
+            'schema': schema,
+            'row_count': row_count,
+            'sample_data': sample_data
+        }
+
+    except Exception as e:
+        raise Exception(f"Error converting Parquet to SQLite: {str(e)}")

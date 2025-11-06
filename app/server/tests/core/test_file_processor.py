@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from core.file_processor import convert_csv_to_sqlite, convert_json_to_sqlite, convert_jsonl_to_sqlite, flatten_json_object, discover_jsonl_fields
+from core.file_processor import convert_csv_to_sqlite, convert_json_to_sqlite, convert_jsonl_to_sqlite, convert_parquet_to_sqlite, flatten_json_object, discover_jsonl_fields
 
 
 @pytest.fixture
@@ -393,3 +393,124 @@ class TestFileProcessor:
         assert jane_data['age'] is None
         assert jane_data['city'] == 'NYC'
         assert jane_data['profile__bio'] == 'Engineer'
+
+    def test_convert_parquet_to_sqlite_success(self, test_db, test_assets_dir):
+        """Test successful Parquet to SQLite conversion with real file"""
+        parquet_file = test_assets_dir / "test_data.parquet"
+        with open(parquet_file, 'rb') as f:
+            parquet_data = f.read()
+
+        table_name = "parquet_data"
+        result = convert_parquet_to_sqlite(parquet_data, table_name, test_db)
+
+        # Verify return structure
+        assert result['table_name'] == table_name
+        assert 'schema' in result
+        assert 'row_count' in result
+        assert 'sample_data' in result
+
+        # Test the returned data
+        assert result['row_count'] > 0  # Should have rows
+        assert len(result['sample_data']) <= 5  # Should return up to 5 samples
+
+        # Verify sample data is list of dicts
+        assert isinstance(result['sample_data'], list)
+        if result['sample_data']:
+            assert isinstance(result['sample_data'][0], dict)
+
+    def test_convert_parquet_to_sqlite_column_names(self, test_db):
+        """Test that parquet column names are properly cleaned"""
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+            import io
+
+            # Create a simple parquet file in memory with column names that need cleaning
+            data = {
+                'User Name': [1, 2, 3],
+                'Email-Address': ['a@b.com', 'c@d.com', 'e@f.com'],
+                'Date-Of-Birth': ['1990-01-01', '1991-01-01', '1992-01-01']
+            }
+            table = pa.table(data)
+            buf = io.BytesIO()
+            pq.write_table(table, buf)
+            parquet_data = buf.getvalue()
+
+            table_name = "test_parquet"
+            result = convert_parquet_to_sqlite(parquet_data, table_name, test_db)
+
+            # Verify column names were cleaned
+            assert 'user_name' in result['schema']
+            assert 'email_address' in result['schema']
+            assert 'date_of_birth' in result['schema']
+
+        except ImportError:
+            pytest.skip("PyArrow not installed")
+
+    def test_convert_parquet_to_sqlite_empty_file(self, test_db):
+        """Test parquet conversion with empty table"""
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+            import io
+
+            # Create an empty parquet file
+            table = pa.table({
+                'col1': pa.array([], type=pa.string()),
+                'col2': pa.array([], type=pa.int64())
+            })
+            buf = io.BytesIO()
+            pq.write_table(table, buf)
+            parquet_data = buf.getvalue()
+
+            table_name = "empty_parquet"
+
+            with pytest.raises(Exception) as exc_info:
+                convert_parquet_to_sqlite(parquet_data, table_name, test_db)
+
+            assert "Parquet file contains no data" in str(exc_info.value)
+
+        except ImportError:
+            pytest.skip("PyArrow not installed")
+
+    def test_convert_parquet_to_sqlite_with_different_types(self, test_db):
+        """Test parquet conversion with different data types"""
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+            import io
+
+            # Create a parquet file with mixed types
+            data = {
+                'id': [1, 2, 3],
+                'name': ['Alice', 'Bob', 'Charlie'],
+                'score': [95.5, 87.3, 92.1],
+                'active': [True, False, True]
+            }
+            table = pa.table(data)
+            buf = io.BytesIO()
+            pq.write_table(table, buf)
+            parquet_data = buf.getvalue()
+
+            table_name = "mixed_types"
+            result = convert_parquet_to_sqlite(parquet_data, table_name, test_db)
+
+            # Verify schema contains all columns
+            assert 'id' in result['schema']
+            assert 'name' in result['schema']
+            assert 'score' in result['schema']
+            assert 'active' in result['schema']
+
+            # Verify sample data
+            assert result['row_count'] == 3
+            assert len(result['sample_data']) == 3
+
+            # Check first record
+            first = result['sample_data'][0]
+            assert first['id'] == 1
+            assert first['name'] == 'Alice'
+            assert first['score'] == 95.5
+            assert first['active'] == 1  # SQLite stores boolean as integer
+
+        except ImportError:
+            pytest.skip("PyArrow not installed")
