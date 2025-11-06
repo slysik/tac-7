@@ -5,7 +5,7 @@ A web application that converts natural language queries to SQL using AI, built 
 ## Features
 
 - 🗣️ Natural language to SQL conversion using OpenAI or Anthropic
-- 📁 Drag-and-drop file upload (.csv and .json)
+- 📁 Drag-and-drop file upload (.csv, .json, .jsonl, and .parquet)
 - 📊 Interactive table results display
 - 🤖 LLM-based synthetic data generation
 - 🔒 SQL injection protection
@@ -84,7 +84,7 @@ bun run dev
 
 1. **Upload Data**: Click "Upload" to open the modal
    - Use sample data buttons for quick testing
-   - Or drag and drop your own .csv or .json files
+   - Or drag and drop your own .csv, .json, .jsonl, or .parquet files
    - Uploading a file with the same name will overwrite the existing table
 2. **Query Your Data**: Type a natural language query like "Show me all users who signed up last week"
    - Press `Cmd+Enter` (Mac) or `Ctrl+Enter` (Windows/Linux) to run the query
@@ -190,7 +190,7 @@ uv run pytest tests/test_sql_injection.py -v
 ### Additional Security Features
 
 - CORS configured for local development only
-- File upload validation (CSV and JSON only)
+- File upload validation (CSV, JSON, JSONL, and Parquet only)
 - Comprehensive error logging without exposing sensitive data
 - Database operations are isolated with proper connection handling
 
@@ -242,6 +242,41 @@ Start a webhook server for real-time GitHub event processing:
 cd adws/
 uv run trigger_webhook.py
 ```
+
+### Workflow Scripts
+
+The ADW system uses several specialized scripts for isolated workflow execution:
+
+#### adw_document_iso.py
+Generates and commits documentation changes in an isolated worktree environment.
+
+**Workflow**:
+1. Loads state and validates worktree exists
+2. Finds spec file from worktree
+3. Analyzes git changes in worktree
+4. Generates feature documentation via the `/document` agent
+5. Updates conditional docs
+6. Commits documentation in worktree
+7. Tracks agentic KPIs
+8. Finalizes git operations (push and PR)
+
+**Usage**:
+```bash
+cd adws/
+uv run adw_document_iso.py <issue-number> <adw-id>
+```
+
+**Requirements**:
+- Must be run after `adw_plan_iso.py` or `adw_patch_iso.py` (requires existing worktree and state)
+- Requires `adw-id` to locate the worktree
+- State file must exist for the given `adw-id`
+
+**Features**:
+- Executes documentation generation in isolated environment
+- Skips documentation if no changes detected
+- Validates spec file existence before processing
+- Posts workflow progress updates to GitHub issues
+- Never fails due to KPI tracking errors (always continues)
 
 ### How ADW Works
 

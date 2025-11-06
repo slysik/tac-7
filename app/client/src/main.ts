@@ -225,7 +225,7 @@ function hideDropOverlay(element: HTMLElement): void {
 }
 
 function isValidFileType(file: File): boolean {
-  const validExtensions = ['.csv', '.json', '.jsonl'];
+  const validExtensions = ['.csv', '.json', '.jsonl', '.parquet'];
   const fileName = file.name.toLowerCase();
   return validExtensions.some(ext => fileName.endsWith(ext));
 }
@@ -300,7 +300,7 @@ function initializeEnhancedDropZones() {
         const file = files[0];
 
         if (!isValidFileType(file)) {
-          displayError('Invalid file type. Please upload a .csv, .json, or .jsonl file.');
+          displayError('Invalid file type. Please upload a .csv, .json, .jsonl, or .parquet file.');
           return;
         }
 
