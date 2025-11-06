@@ -91,32 +91,45 @@ function initializeQueryInput() {
   });
 }
 
-// Random Query Generation Functionality
-function initializeRandomQueryButton() {
-  const generateButton = document.getElementById('generate-random-query-button') as HTMLButtonElement;
+// Generate random query and populate input field
+async function generateRandomQuery() {
   const queryInput = document.getElementById('query-input') as HTMLTextAreaElement;
-  
-  generateButton.addEventListener('click', async () => {
+  const generateButton = document.getElementById('generate-random-query-button') as HTMLButtonElement;
+
+  // Only disable button if it exists (it may not exist in some contexts)
+  const buttonExists = generateButton !== null;
+  if (buttonExists) {
     generateButton.disabled = true;
     generateButton.innerHTML = '<span class="loading-secondary"></span>';
-    
-    try {
-      const response = await api.generateRandomQuery();
-      
-      // Always populate the query input field, even with error messages
-      queryInput.value = response.query;
-      queryInput.focus();
-      
-      if (response.error && response.error !== "No tables found in database") {
-        // Only show errors for unexpected failures
-        displayError(response.error);
-      }
-    } catch (error) {
-      displayError(error instanceof Error ? error.message : 'Failed to generate random query');
-    } finally {
+  }
+
+  try {
+    const response = await api.generateRandomQuery();
+
+    // Always populate the query input field, even with error messages
+    queryInput.value = response.query;
+    queryInput.focus();
+
+    if (response.error && response.error !== "No tables found in database") {
+      // Only show errors for unexpected failures
+      displayError(response.error);
+    }
+  } catch (error) {
+    displayError(error instanceof Error ? error.message : 'Failed to generate random query');
+  } finally {
+    if (buttonExists) {
       generateButton.disabled = false;
       generateButton.textContent = 'Generate Random Query';
     }
+  }
+}
+
+// Random Query Generation Functionality
+function initializeRandomQueryButton() {
+  const generateButton = document.getElementById('generate-random-query-button') as HTMLButtonElement;
+
+  generateButton.addEventListener('click', async () => {
+    await generateRandomQuery();
   });
 }
 
@@ -419,6 +432,8 @@ async function handleGenerateData(tableName: string, button: HTMLButtonElement) 
       displaySuccess(`Generated ${response.rows_added} rows for table '${response.table_name}'. New total: ${response.new_row_count} rows.`);
       // Reload database schema to update table row counts
       await loadDatabaseSchema();
+      // Generate a sample query to help user explore the newly populated data
+      await generateRandomQuery();
     }
   } catch (error) {
     displayError(`Failed to generate data: ${error}`);
