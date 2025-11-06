@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initializeFileUpload();
   initializeModal();
   initializeRandomQueryButton();
+  initializeEnhancedDropZones();
   loadDatabaseSchema();
 });
 
@@ -90,32 +91,60 @@ function initializeQueryInput() {
   });
 }
 
-// Random Query Generation Functionality
-function initializeRandomQueryButton() {
-  const generateButton = document.getElementById('generate-random-query-button') as HTMLButtonElement;
+// Generate random query and populate input field
+async function generateRandomQuery() {
   const queryInput = document.getElementById('query-input') as HTMLTextAreaElement;
-  
-  generateButton.addEventListener('click', async () => {
+  const generateButton = document.getElementById('generate-random-query-button') as HTMLButtonElement;
+
+  // Only disable button if it exists (it may not exist in some contexts)
+  const buttonExists = generateButton !== null;
+  if (buttonExists) {
     generateButton.disabled = true;
     generateButton.innerHTML = '<span class="loading-secondary"></span>';
-    
-    try {
-      const response = await api.generateRandomQuery();
-      
-      // Always populate the query input field, even with error messages
-      queryInput.value = response.query;
+  }
+
+  try {
+    const response = await api.generateRandomQuery();
+
+    // Check for errors first
+    if (response.error && response.error !== "No tables found in database") {
+      // Show errors for unexpected failures
+      console.error('Random query generation error:', response.error);
+      displayError(`Failed to generate query: ${response.error}`);
+      // Don't populate input field if there was an error
+      return;
+    }
+
+    // Populate the query input field only if we have a valid query
+    const trimmedQuery = response.query ? response.query.trim() : '';
+    if (trimmedQuery.length > 0) {
+      queryInput.value = trimmedQuery;
       queryInput.focus();
-      
-      if (response.error && response.error !== "No tables found in database") {
-        // Only show errors for unexpected failures
-        displayError(response.error);
-      }
-    } catch (error) {
-      displayError(error instanceof Error ? error.message : 'Failed to generate random query');
-    } finally {
+    } else if (response.error === "No tables found in database") {
+      // Silently handle case where no tables exist
+      queryInput.value = "Please upload some data first.";
+    } else {
+      // Log the actual response for debugging
+      console.warn('Random query response:', { query: response.query, error: response.error });
+      displayError("Failed to generate a query. The API returned an empty response. Please try again.");
+    }
+  } catch (error) {
+    console.error('Random query fetch error:', error);
+    displayError(error instanceof Error ? error.message : 'Failed to generate random query');
+  } finally {
+    if (buttonExists) {
       generateButton.disabled = false;
       generateButton.textContent = 'Generate Random Query';
     }
+  }
+}
+
+// Random Query Generation Functionality
+function initializeRandomQueryButton() {
+  const generateButton = document.getElementById('generate-random-query-button') as HTMLButtonElement;
+
+  generateButton.addEventListener('click', async () => {
+    await generateRandomQuery();
   });
 }
 
@@ -161,7 +190,7 @@ function initializeFileUpload() {
 async function handleFileUpload(file: File) {
   try {
     const response = await api.uploadFile(file);
-    
+
     if (response.error) {
       displayError(response.error);
     } else {
@@ -170,6 +199,114 @@ async function handleFileUpload(file: File) {
     }
   } catch (error) {
     displayError(error instanceof Error ? error.message : 'Upload failed');
+  }
+}
+
+// Enhanced Drop Zones - Helper Functions
+function showDropOverlay(element: HTMLElement): HTMLElement {
+  const overlay = document.createElement('div');
+  overlay.className = 'drop-message';
+
+  const text = document.createElement('div');
+  text.className = 'drop-message-text';
+  text.textContent = 'Drop to create table';
+
+  overlay.appendChild(text);
+  element.appendChild(overlay);
+
+  return overlay;
+}
+
+function hideDropOverlay(element: HTMLElement): void {
+  const overlay = element.querySelector('.drop-message');
+  if (overlay) {
+    overlay.remove();
+  }
+}
+
+function isValidFileType(file: File): boolean {
+  const validExtensions = ['.csv', '.json', '.jsonl'];
+  const fileName = file.name.toLowerCase();
+  return validExtensions.some(ext => fileName.endsWith(ext));
+}
+
+function hasFiles(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false;
+  return Array.from(dataTransfer.types).includes('Files');
+}
+
+// Initialize Enhanced Drop Zones
+function initializeEnhancedDropZones() {
+  const querySection = document.getElementById('query-section') as HTMLElement;
+  const tablesSection = document.getElementById('tables-section') as HTMLElement;
+
+  // Setup drop zone for query section
+  if (querySection) {
+    setupDropZone(querySection);
+  }
+
+  // Setup drop zone for tables section
+  if (tablesSection) {
+    setupDropZone(tablesSection);
+  }
+
+  function setupDropZone(element: HTMLElement) {
+    let localDragCounter = 0;
+
+    element.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      const dataTransfer = (e as DragEvent).dataTransfer;
+
+      if (hasFiles(dataTransfer)) {
+        localDragCounter++;
+        if (localDragCounter === 1) {
+          element.classList.add('dragover');
+          showDropOverlay(element);
+        }
+      }
+    });
+
+    element.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const dataTransfer = (e as DragEvent).dataTransfer;
+
+      if (hasFiles(dataTransfer) && dataTransfer) {
+        dataTransfer.dropEffect = 'copy';
+      }
+    });
+
+    element.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      localDragCounter--;
+
+      if (localDragCounter === 0) {
+        element.classList.remove('dragover');
+        hideDropOverlay(element);
+      }
+    });
+
+    element.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      localDragCounter = 0;
+      element.classList.remove('dragover');
+      hideDropOverlay(element);
+
+      const dataTransfer = (e as DragEvent).dataTransfer;
+      const files = dataTransfer?.files;
+
+      if (files && files.length > 0) {
+        const file = files[0];
+
+        if (!isValidFileType(file)) {
+          displayError('Invalid file type. Please upload a .csv, .json, or .jsonl file.');
+          return;
+        }
+
+        await handleFileUpload(file);
+      }
+    });
   }
 }
 
@@ -310,6 +447,8 @@ async function handleGenerateData(tableName: string, button: HTMLButtonElement) 
       displaySuccess(`Generated ${response.rows_added} rows for table '${response.table_name}'. New total: ${response.new_row_count} rows.`);
       // Reload database schema to update table row counts
       await loadDatabaseSchema();
+      // Generate a sample query to help user explore the newly populated data
+      await generateRandomQuery();
     }
   } catch (error) {
     displayError(`Failed to generate data: ${error}`);
