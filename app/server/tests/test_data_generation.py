@@ -60,7 +60,7 @@ class TestSyntheticDataGeneration:
                 # Verify API was called
                 mock_client.chat.completions.create.assert_called_once()
                 call_args = mock_client.chat.completions.create.call_args
-                assert call_args[1]['model'] == 'gpt-4.1-2025-04-14'
+                assert call_args[1]['model'] == 'o4-mini-2025-04-16'
 
     def test_generate_synthetic_data_anthropic(self):
         """Test Anthropic synthetic data generation with mocked API"""
